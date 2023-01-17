@@ -1,6 +1,8 @@
 const block_size = 80;
 var canvas = document.getElementById("canvas");
 var context = canvas.getContext("2d");
+
+// можно сделать отдельный класс Tank и убрать дублирование функций обоих игроков
 var p1x;
 var p1y;
 var p2x;
@@ -192,6 +194,7 @@ function drawImage(source, x, y)
 	context.drawImage(source, x, y, block_size, block_size);
 };
 
+//  эту функцию можно сделать чистой, чтобы она, например, возвращала следующую позицию танка, а проверки и смещение сделать отдельно
 function moveP1()
 {
 	if (p1_cooldown == null) {
@@ -332,6 +335,8 @@ function moveP2()
 		}, 120);
 	}
 }
+
+// здесь тоже можно попробовать сделать чистую функцию
 function move_Bullet()
 {
 	var bullet_map_next = bullet_map.map(function (x) {return new Array(x.length).fill(0) });
@@ -392,6 +397,8 @@ function move_Bullet()
 			}
 	bullet_map = bullet_map_next.slice();			
 }
+
+// тоже можно попробовать сделать чистую фунцкию
 function newPos(player)
 {
 	var x = Math.floor(Math.random() * game_map.length);
@@ -406,3 +413,5 @@ function newPos(player)
 	else game_map[p2y][p2x] =0;
 	game_map[x][y] = player;
 }
+
+// Также, чтобы избежать использование глобальных переменных и передавать фунциям только нужные переменные, можно обернуть всю логику в отдельный класс Game
