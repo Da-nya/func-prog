@@ -1,12 +1,5 @@
 const block_size = 80;
-var canvas = document.getElementById("canvas");
-var context = canvas.getContext("2d");
-
-// можно сделать отдельный класс Tank и убрать дублирование функций обоих игроков
-var p1x;
-var p1y;
-var p2x;
-var p2y;
+const explosion_frames = 1;
 
 const tankUp = new Image();
 tankUp.src = "img/up_tank.png";
@@ -26,15 +19,6 @@ tank2Left.src = "img/left_tank2.png";
 const tank2Right = new Image();
 tank2Right.src = "img/right_tank2.png";
 
-
-var tank_img = tankUp;
-var tank2_img = tank2Down;
-
-var p1_pressed = null;
-var p2_pressed = null;
-var p1_cooldown = null;
-var p2_cooldown = null;
-
 const wall1 = new Image();
 wall1.src = "img/wall.png";
 const grass = new Image();
@@ -47,29 +31,346 @@ const expl2 = new Image();
 expl2.src = "img/explosion1.png";
 const expl3 = new Image();
 expl3.src = "img/explosion2.png";
-const shield = new Image();
-shield.src = "img/shield.png"
 var images = [
 	tankUp, tankDown, tankLeft, tankRight, 
 	tank2Up, tank2Down, tank2Left, tank2Right,
-	wall1, grass, water, expl1, expl2, expl3, shield
+	wall1, grass, water, expl1, expl2, expl3,
 ];
-var game_map=[
-	[0,0,0,0,0,2,0,0,0,0],
-	[0,0,0,0,0,0,0,0,0,0],
-	[0,3,4,0,0,0,0,5,5,0],
-	[4,3,0,4,0,0,0,0,0,0],
-	[4,3,5,3,4,3,3,0,3,0],
-	[4,0,0,0,0,4,0,0,3,0],
-	[4,0,0,0,0,3,3,0,3,0],
-	[0,0,0,0,0,0,3,0,0,0],
-	[0,0,0,0,0,0,0,0,0,0],
-	[0,0,0,0,1,0,0,0,0,0],
-];
-var bullet_map = game_map.map(function (x){
-	return new Array(x.length).fill(0);
-});
 
+
+class Tank{
+	#id;
+	#x;
+	#y;
+	#keys;
+	#rotation;
+	#images;
+	constructor(props){
+        this.#x = props.x;
+        this.#y = props.y;
+		this.#images = props.images;
+        this.#id = props.id;     
+        this.#rotation = props.rotate;
+        this.#keys = props.keys;
+    }
+	move(keyPressed){
+        let count = 0;
+		if (keyPressed[this.#keys.shoot])
+			return 'shoot';
+
+        if (keyPressed[this.#keys.up])
+            count++;
+        if (keyPressed[this.#keys.down])
+            count++;
+        if (keyPressed[this.#keys.left])
+            count++;
+        if (keyPressed[this.#keys.right])
+            count++;
+        
+        if (count != 1)
+			return false;
+
+		if (keyPressed[this.#keys.up])
+			return 'up';
+        if (keyPressed[this.#keys.down])
+			return 'down';
+        if (keyPressed[this.#keys.left])
+			return 'left';
+        if (keyPressed[this.#keys.right])
+			return 'right';
+	}
+	setPosition(pos){
+		if(pos.x || pos.x === 0){
+			this.#x = pos.x;
+		}
+		if (pos.y || pos.y === 0){
+			this.#y = pos.y;
+		}
+	}
+	getPosition(){
+		return {x: this.#x, y: this.#y}
+	}
+	setRotate(rotate){
+		this.#rotation = rotate;
+	}
+	getRotate(){
+		return this.#rotation;
+	}
+	getImage(){
+		return this.#images[this.#rotation];
+	}
+	getId(){
+		return this.#id;
+	}
+}
+
+class Game{
+	constructor(props){
+		this.canvas = props.canvas;
+		this.keyPressed = new Array(256);
+		let keys = this.keyPressed;
+
+		document.addEventListener('keydown', function (event){
+			keys[event.keyCode] = true;
+			event.preventDefault();
+		});
+		document.addEventListener('keyup', function (event){
+			keys[event.keyCode] = false;
+			event.preventDefault();
+		})
+			
+		this.playerList = [];
+		this.game_map = props.game_map;
+		this.bullet_map = this.game_map.map(function (x){
+			return new Array(x.length).fill(0);
+		});
+
+		let tank_pos = this.getEmptyPos(this.game_map, this.bullet_map);
+		this.game_map[tank_pos.y][tank_pos.x] = 1;
+		let player = new Tank({
+			x: tank_pos.x,
+			y: tank_pos.y,
+			id: 1,
+			keys: {
+				left: 37,
+				up: 38,
+				right: 39,
+				down: 40,
+				shoot: 13
+			},
+			rotate: 'up',
+			images: {left: tankLeft, up: tankUp, right: tankRight, down: tankDown}
+		 })
+		this.playerList.push(player);
+		
+		tank_pos = this.getEmptyPos(this.game_map, this.bullet_map);
+		this.game_map[tank_pos.y][tank_pos.x] = 2;
+		player = new Tank({
+			x: tank_pos.x,
+			y: tank_pos.y,
+			id: 2,
+			keys: {
+				left: 65,
+				up: 87,
+				right: 68,
+				down: 83,
+				shoot: 32
+			},
+			rotate: 'up',
+			images: {left: tank2Left, up: tank2Up, right: tank2Right, down: tank2Down}
+		 })
+		this.playerList.push(player);
+
+		//контроль игры
+		setInterval(() => {
+			drawLevel(this.canvas, this.game_map, this.bullet_map, this.playerList);
+			let killed_tanks = [];
+			[this.game_map, this.bullet_map, killed_tanks] = this.move_Bullet(this.game_map, this.bullet_map);
+			for (let id of killed_tanks){
+				let tank = this.getTankById(this.playerList, id)
+				let pos = this.getEmptyPos(this.game_map, this.bullet_map);
+				this.game_map[pos.y][pos.x] = id;
+				tank.setPosition(pos);
+			}
+
+			[this.game_map, this.bullet_map] = this.move_tanks(this.keyPressed, this.playerList, this.game_map, this.bullet_map);
+			this.game_map = this.control_explosions(this.game_map);
+		}, 80);
+	}
+
+	move_tanks(keyPressed, playerList, game_map, bullet_map){
+		for(let tank of playerList){
+			let move = tank.move(keyPressed);
+			let pos = tank.getPosition();			
+			let rotate = tank.getRotate();
+
+			let rotation = 'up';
+			if (move == rotation) {
+				if (rotate != rotation)
+					tank.setRotate(rotation);
+				else
+					if (pos.y > 0)
+						if (game_map[pos.y - 1][pos.x] === 0) {
+							let code = game_map[pos.y][pos.x];
+							game_map[pos.y][pos.x] = 0;
+							game_map[pos.y - 1][pos.x] = code;
+							tank.setPosition({x: pos.x, y: pos.y - 1});
+					}
+			}
+			
+			rotation = 'down';
+			if (move == rotation) {
+				if (rotate != rotation)
+					tank.setRotate(rotation);
+				else
+					if (pos.y < game_map.length - 1)
+						if (game_map[pos.y + 1][pos.x] === 0) {
+							let code = game_map[pos.y][pos.x];
+							game_map[pos.y][pos.x] = 0;
+							game_map[pos.y + 1][pos.x] = code;
+							tank.setPosition({x: pos.x, y: pos.y + 1});
+					}
+			}
+
+			rotation = 'left';
+			if (move == rotation) {
+				if (rotate != rotation)
+					tank.setRotate(rotation);
+				else
+					if (pos.x > 0)
+						if (game_map[pos.y][pos.x - 1] === 0) {
+							let code = game_map[pos.y][pos.x];
+							game_map[pos.y][pos.x] = 0;
+							game_map[pos.y][pos.x - 1] = code;
+							tank.setPosition({x: pos.x - 1, y: pos.y});
+					}
+			}
+
+			rotation = 'right';
+			if (move == rotation) {
+				if (rotate != rotation)
+					tank.setRotate(rotation);
+				else
+					if (pos.x < game_map.length - 1)
+						if (game_map[pos.y][pos.x + 1] === 0) {
+							let code = game_map[pos.y][pos.x];
+							game_map[pos.y][pos.x] = 0;
+							game_map[pos.y][pos.x + 1] = code;
+							tank.setPosition({x: pos.x + 1, y: pos.y});
+					}
+			}
+
+			if (move == "shoot")
+			{
+				switch(rotate){
+					case 'up': 
+						if(pos.y > 0)
+							bullet_map[pos.y - 1][pos.x] = 1;
+					break;
+					case 'down': 
+						if(pos.y < game_map.length - 1)
+							bullet_map[pos.y + 1][pos.x] = 3;
+					break;
+					case 'left': 
+						if(pos.x > 0)
+							bullet_map[pos.y][pos.x - 1] = 4;
+					break;
+					case 'right': 
+						if(pos.x < game_map.length - 1)
+							bullet_map[pos.y][pos.x + 1] = 2;
+					break;
+				}
+			}
+		}
+		return [game_map, bullet_map];
+	}
+	control_explosions(game_map){
+		for (var i = 0; i < game_map.length; i++)
+			for (var j = 0; j < game_map.length; j++) 
+				if (typeof game_map[i][j] == 'object'){
+					switch (game_map[i][j].type){
+						case -1: 
+							game_map[i][j].frames -= 1;
+							if (game_map[i][j].frames < 0)
+								game_map[i][j] = {type: -2, frames: explosion_frames};
+							break;
+						case -2:
+							game_map[i][j].frames -= 1;
+							if (game_map[i][j].frames < 0)
+								game_map[i][j] = {type: -3, frames: explosion_frames};
+							break;
+						case -3:
+							game_map[i][j].frames -= 1;
+							if (game_map[i][j].frames < 0)
+								game_map[i][j] = 0;
+							break;
+					}
+				}
+		return game_map;
+	}
+
+	move_Bullet(game_map, bullet_map)
+	{
+		let bullet_map_next = bullet_map.map(function (x) {return new Array(x.length).fill(0) });
+		let killed_tanks = [];
+		for (var i = 0; i < game_map.length; i++)
+			for (var j = 0; j < game_map.length; j++) 
+				if (bullet_map[i][j] != 0)
+				{
+					let bul = bullet_map[i][j];
+					let ii;
+					let jj;
+					switch (game_map[i][j]) {
+						case 1: 
+						case 2: 
+							killed_tanks.push(game_map[i][j]);
+							game_map[i][j] = {type: -1, frames: explosion_frames};
+							break;
+						case 3: bullet_map_next[i][j] = 0;
+							break;
+						case 4: game_map[i][j] = 0;
+							break;
+						default:
+							if ((bul === 1) && (i > 0)) {
+								ii = i - 1;
+								jj = j;
+							}
+							if ((bul === 2) && (j < game_map.length - 1)) {
+								ii = i;
+								jj = j + 1;
+							}
+							if ((bul === 3) && (i < game_map.length - 1)) {
+								ii = i + 1;
+								jj = j;
+							}
+							if ((bul === 4) && (j > 0)) {
+								ii = i;
+								jj = j - 1;
+							}
+							if (ii === undefined)
+								break;
+							if ((bullet_map[ii][jj] === 1 && bullet_map[i][j] === 3) ||
+								(bullet_map[ii][jj] === 2 && bullet_map[i][j] === 4) ||
+								(bullet_map[ii][jj] === 3 && bullet_map[i][j] === 1) ||
+								(bullet_map[ii][jj] === 4 && bullet_map[i][j] === 2))
+								{
+								bullet_map[ii][jj] = 0;
+								game_map[ii][jj] = {type: -1, frames: 10};
+								}// устроить ВЗРЫВ
+							else
+								if (bullet_map_next[ii][jj] != 0)
+								{
+									bullet_map_next[ii][jj] = 0;
+									game_map[ii][jj] = {type: -1, frames: 10}; //EXPLOSIONS
+								}
+								else bullet_map_next[ii][jj] = bul;
+							break;
+
+					}
+				}
+		return [game_map, bullet_map_next, killed_tanks];
+	}
+
+	getEmptyPos(game_map, bullet_map)
+	{
+		var x = Math.floor(Math.random() * game_map.length);
+		var y = Math.floor(Math.random() * game_map.length);
+		while (game_map[x][y]!=0 || bullet_map[x][y]!=0)
+		{
+			x = Math.floor(Math.random() * game_map.length);
+			y = Math.floor(Math.random() * game_map.length);
+		}
+		return {x:y, y:x}
+	}
+
+	getTankById(tanks, id){
+		for (var tank of tanks)
+			if (tank.getId() == id)
+				return tank;
+	}
+}
+
+// Загрузка изображений, после этого создается игра
 Promise.all(images.map(img => {
     if (img.complete)
         return Promise.resolve(img.naturalHeight !== 0);
@@ -80,338 +381,78 @@ Promise.all(images.map(img => {
 })).then(results => {
     if (results.every(res => res))
 	{
-		setInterval(() => {drawLevel(); moveP1(); moveP2();}, 3);
-		setInterval(() => move_Bullet(), 80);
+		let game_map=[
+			[0,0,0,0,0,0,0,0,0,0],
+			[0,0,0,0,0,0,0,0,0,0],
+			[0,3,4,0,0,0,0,5,5,0],
+			[4,3,0,4,0,0,0,0,0,0],
+			[4,3,5,3,4,3,3,0,3,0],
+			[4,0,0,0,0,4,0,0,3,0],
+			[4,0,0,0,0,3,3,0,3,0],
+			[0,0,0,0,0,0,3,0,0,0],
+			[0,0,0,0,0,0,0,0,0,0],
+			[0,0,0,0,0,0,0,0,0,0],
+		];
+		new Game({game_map: game_map, canvas: document.getElementById("canvas")});
 	}
     else
         alert('Ошибка загрузки изображений');
 });
 
-
-
-document.addEventListener('keydown', function (event){
-	if (event.code == "ArrowUp" || event.code == "ArrowDown" || 
-		event.code == "ArrowLeft" || event.code == "ArrowRight" ||event.code == "Enter")
+function drawLevel(canvas, game_map, bullet_map, tanks)
 	{
-			if(p1_pressed != event.code)
-			{
-				clearInterval(p1_cooldown);
-				p1_cooldown = null;
-			}
-			p1_pressed = event.code
-	}
-	if (event.code == "KeyW" || event.code == "KeyD" || 
-		event.code == "KeyS" || event.code == "KeyA" ||event.code == "Space")
-	{
-		if(p2_pressed != event.code)
-			{
-				clearInterval(p2_cooldown);
-				p2_cooldown = null;
-			}
-		p2_pressed = event.code;
-	}
-});
+		context = canvas.getContext("2d");
+		context.clearRect(0, 0, canvas.width, canvas.height);
 
-document.addEventListener('keyup', function (event){
-	if ((event.code == p1_pressed))
-		p1_pressed = null;
-	if (event.code == p2_pressed)
-		p2_pressed = null;		
-});
-
-function drawLevel()
-{
-	context.clearRect(0, 0, canvas.width, canvas.height);
-
-	for (var i = 0; i < game_map.length; i++){
-		for (var j = 0; j < game_map.length; j++) {
-			if (game_map[i][j] === 1){
-				drawImage(tank_img, j * block_size, i * block_size);
-				p1x = j;
-				p1y = i;
-			}
-			if (game_map[i][j] === 2) 
-			{
-				drawImage(tank2_img, j * block_size, i * block_size);
-				p2x =j;
-				p2y =i;
-			}
-			if (game_map[i][j] ===3)
-			{
-				drawImage(wall1, j * block_size, i * block_size);
-			}
-			if (game_map[i][j] === 4)
-			{
-				drawImage(grass, j * block_size, i * block_size)
-			}
-			if (game_map[i][j] === 5)
-			{
-				drawImage(water, j * block_size, i * block_size)
-			}
-			if (game_map[i][j] === 6)
-			{
-				drawImage(shield, j * block_size, i * block_size);
-			}
-			if (bullet_map[i][j] != 0)
+		for(let tank of tanks){
+			let pos = tank.getPosition();
+			let tank_img = tank.getImage();
+			this.drawImage(context, tank_img, pos.x * block_size, pos.y * block_size);
+		}
+		for (var i = 0; i < game_map.length; i++){
+			for (var j = 0; j < game_map.length; j++) {
+				if (game_map[i][j] ===3)
 				{
-					var centerX = j*block_size + block_size /2;
-					var centerY = i*block_size + block_size /2;
-					context.fillStyle = "white";
-					context.fillRect(centerX -5, centerY -5 , 10,10);
+					this.drawImage(context, wall1, j * block_size, i * block_size);
 				}
-			switch (game_map[i][j].type){
-				case -1: 
-					drawImage(expl3, j * block_size, i * block_size);
-					game_map[i][j].frames -= 1;
-					if (game_map[i][j].frames < 0)
-						game_map[i][j] = {type: -2, frames: 10};
-					break;
-				case -2:
-					drawImage(expl2, j * block_size, i * block_size);
-					game_map[i][j].frames -= 1;
-					if (game_map[i][j].frames < 0)
-						game_map[i][j] = {type: -3, frames: 10};
-					break;
-				case -3:
-					drawImage(expl1, j * block_size, i * block_size);
-					game_map[i][j].frames -= 1;
-					if (game_map[i][j].frames < 0)
-						game_map[i][j] = 0;
-					break;
-			}
-			
-		}
-	}
-}
-function logmap(map)
-{
-	for(var i=0;i<map.length;i++)
-		console.log(map[i]);
-	console.log("\n");
-}
-function drawImage(source, x, y)
-{
-	context.drawImage(source, x, y, block_size, block_size);
-};
+				if (game_map[i][j] === 4)
+				{
+					this.drawImage(context, grass, j * block_size, i * block_size)
+				}
+				if (game_map[i][j] === 5)
+				{
+					this.drawImage(context, water, j * block_size, i * block_size)
+				}
+				if (game_map[i][j] === 6)
+				{
+					this.drawImage(context, shield, j * block_size, i * block_size);
+				}
+				if (bullet_map[i][j] != 0)
+					{
+						var centerX = j*block_size + block_size /2;
+						var centerY = i*block_size + block_size /2;
+						context.fillStyle = "white";
+						context.fillRect(centerX -5, centerY -5 , 10,10);
+					}
 
-//  эту функцию можно сделать чистой, чтобы она, например, возвращала следующую позицию танка, а проверки и смещение сделать отдельно
-function moveP1()
-{
-	if (p1_cooldown == null) {
-		if (p1_pressed == "ArrowUp") {
-			if (tank_img != tankUp)
-				tank_img = tankUp;
-			else
-				if (p1y > 0)
-					if (game_map[p1y - 1][p1x] === 0) {
-						game_map[p1y][p1x] = 0;
-						game_map[p1y - 1][p1x] = 1;
-					}
-		}
-		if (p1_pressed == "ArrowDown") {
-			if (tank_img != tankDown)
-				tank_img = tankDown;
-			else
-				if (p1y < game_map.length - 1)
-					if (game_map[p1y + 1][p1x] === 0) {
-						game_map[p1y][p1x] = 0;
-						game_map[p1y + 1][p1x] = 1;
-					}
-		}
-		if (p1_pressed == "ArrowLeft") {
-			if (tank_img != tankLeft)
-				tank_img = tankLeft;
-			else
-				if (p1x > 0)
-					if (game_map[p1y][p1x - 1] === 0) {
-						game_map[p1y][p1x] = 0;
-						game_map[p1y][p1x - 1] = 1;
-					}
-		}
-		if (p1_pressed == "ArrowRight") {
-			if (tank_img != tankRight)
-				tank_img = tankRight;
-			else
-				if (p1x < game_map.length - 1)
-					if (game_map[p1y][p1x + 1] === 0) {
-						game_map[p1y][p1x] = 0;
-						game_map[p1y][p1x + 1] = 1;
-					}
-		}
-		if (p1_pressed == "Enter") {
-			switch (tank_img) {
-				case tankUp:
-					if (p1y > 0)
-						bullet_map[p1y - 1][p1x] = 1;
-					break;
-				case tankDown:
-					if (p1y < game_map.length - 1)
-						bullet_map[p1y + 1][p1x] = 3;
-					break;
-				case tankLeft:
-					if (p1x > 0)
-						bullet_map[p1y][p1x - 1] = 4;
-					break;
-				case tankRight:
-					if (p1x < game_map.length - 1)
-						bullet_map[p1y][p1x + 1] = 2;
-					break;
-			}
-		}
-			p1_cooldown = setTimeout(() => {
-				clearTimeout(p1_cooldown);
-				p1_cooldown = null;
-			}, 120);
-	}
-}
-
-function moveP2()
-{
-	if (p2_cooldown == null) {
-		if (p2_pressed == "KeyW") {
-			if (tank2_img != tank2Up)
-				tank2_img = tank2Up;
-			else
-				if (p2y > 0)
-					if (game_map[p2y - 1][p2x] === 0) {
-
-						game_map[p2y][p2x] = 0;
-						game_map[p2y - 1][p2x] = 2;
-					}
-		}
-		if (p2_pressed == "KeyS") {
-			if (tank2_img != tank2Down)
-				tank2_img = tank2Down;
-			else
-				if (p2y < game_map.length - 1)
-					if (game_map[p2y + 1][p2x] === 0) {
-						game_map[p2y][p2x] = 0;
-						game_map[p2y + 1][p2x] = 2;
-					}
-		}
-		if (p2_pressed == "KeyA") {
-			if (tank2_img != tank2Left)
-				tank2_img = tank2Left;
-			else
-				if (p2x > 0)
-					if (game_map[p2y][p2x - 1] === 0) {
-						game_map[p2y][p2x] = 0;
-						game_map[p2y][p2x - 1] = 2;
-					}
-		}
-		if (p2_pressed == "KeyD") {
-			if (tank2_img != tank2Right)
-				tank2_img = tank2Right;
-			else
-				if (p2x < game_map.length - 1)
-					if (game_map[p2y][p2x + 1] === 0) {
-						game_map[p2y][p2x] = 0;
-						game_map[p2y][p2x + 1] = 2;
-					}
-		}
-		if (p2_pressed == "Space") {
-			switch (tank2_img) {
-				case tank2Up:
-					if (p2y > 0)
-						bullet_map[p2y - 1][p2x] = 1;
-					break;
-				case tank2Down:
-					if (p2y < game_map.length - 1)
-						bullet_map[p2y + 1][p2x] = 3;
-					break;
-				case tank2Left:
-					if (p2x > 0)
-						bullet_map[p2y][p2x - 1] = 4;
-					break;
-				case tank2Right:
-					if (p2x < game_map.length - 1)
-						bullet_map[p2y][p2x + 1] = 2;
-					break;
-			}
-		}
-		p2_cooldown = setTimeout(() => {
-			clearTimeout(p2_cooldown);
-			p2_cooldown = null;
-		}, 120);
-	}
-}
-
-// здесь тоже можно попробовать сделать чистую функцию
-function move_Bullet()
-{
-	var bullet_map_next = bullet_map.map(function (x) {return new Array(x.length).fill(0) });
-	for (var i = 0; i < game_map.length; i++)
-		for (var j = 0; j < game_map.length; j++) 
-			if (bullet_map[i][j] != 0)
-			{
-				let bul = bullet_map[i][j];
-				let ii;
-				let jj;
-				switch (game_map[i][j]) {
-					case 1: 
-					case 2: 
-						newPos(game_map[i][j]);
-						game_map[i][j] = {type: -1, frames: 10};
-						break;
-					case 3: bullet_map_next[i][j] = 0;
-						break;
-					case 4: game_map[i][j] = 0;
-						break;
-					default:
-						if ((bul === 1) && (i > 0)) {
-							ii = i - 1;
-							jj = j;
-						}
-						if ((bul === 2) && (j < game_map.length - 1)) {
-							ii = i;
-							jj = j + 1;
-						}
-						if ((bul === 3) && (i < game_map.length - 1)) {
-							ii = i + 1;
-							jj = j;
-						}
-						if ((bul === 4) && (j > 0)) {
-							ii = i;
-							jj = j - 1;
-						}
-						if (ii === undefined)
+				if (typeof game_map[i][j] == 'object'){
+					switch (game_map[i][j].type){
+						case -1: 
+							this.drawImage(context, expl3, j * block_size, i * block_size);
 							break;
-						if ((bullet_map[ii][jj] === 1 && bullet_map[i][j] === 3) ||
-							(bullet_map[ii][jj] === 2 && bullet_map[i][j] === 4) ||
-							(bullet_map[ii][jj] === 3 && bullet_map[i][j] === 1) ||
-							(bullet_map[ii][jj] === 4 && bullet_map[i][j] === 2))
-							{
-							bullet_map[ii][jj] = 0;
-							game_map[ii][jj] = {type: -1, frames: 10};
-							}// устроить ВЗРЫВ
-						else
-							if (bullet_map_next[ii][jj] != 0)
-							{
-								bullet_map_next[ii][jj] = 0;
-								game_map[ii][jj] = {type: -1, frames: 10}; //EXPLOSIONS
-							}
-							else bullet_map_next[ii][jj] = bul;
-						break;
-
-				}
+						case -2:
+							this.drawImage(context, expl2, j * block_size, i * block_size);
+							break;
+						case -3:
+							this.drawImage(context, expl1, j * block_size, i * block_size);
+							break;
+					}
+				}	
 			}
-	bullet_map = bullet_map_next.slice();			
-}
-
-// тоже можно попробовать сделать чистую фунцкию
-function newPos(player)
-{
-	var x = Math.floor(Math.random() * game_map.length);
-	var y = Math.floor(Math.random() * game_map.length);
-	while (game_map[x][y]!=0 || bullet_map[x][y]!=0)
-	{
-		x = Math.floor(Math.random() * game_map.length);
-		y = Math.floor(Math.random() * game_map.length);
+		}
 	}
-	if (player === 1)
-		game_map[p1y][p1x] =0;
-	else game_map[p2y][p2x] =0;
-	game_map[x][y] = player;
-}
 
-// Также, чтобы избежать использование глобальных переменных и передавать фунциям только нужные переменные, можно обернуть всю логику в отдельный класс Game
+function drawImage(context, source, x, y)
+	{
+		context.drawImage(source, x, y, block_size, block_size);
+	};
